@@ -46,7 +46,7 @@ namespace Tsumiki.Core
             var offsets = level >= 4 ? new[] {-1, 1, -2, 2, -3, 3} : new[] {-3, 3, -2, 2, -1, 1};
             foreach (var offset in offsets) if (answer + offset > 0 && values.Count < 5) values.Add(answer + offset);
             for (var candidate = 1; values.Count < 5; candidate++) if (candidate != answer) values.Add(candidate);
-            return values.OrderBy(_ => random.Next()).ToArray();
+            return values.OrderBy(value => value).ToArray();
         }
     }
 }

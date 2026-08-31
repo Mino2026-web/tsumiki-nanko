@@ -7,7 +7,7 @@ namespace Tsumiki.Runtime
 {
     public sealed class AppBootstrap : MonoBehaviour
     {
-        private enum Page { Home, Levels, Count, Free, Compare, View, Settings, Parent }
+        private enum Page { Home, Levels, Count, Free, Compare, View, Settings, DressUp, Parent }
         private Page page, requestedMode;
         private BlockRenderer left, right;
         private readonly PuzzleGenerator generator = new();
@@ -23,6 +23,25 @@ namespace Tsumiki.Runtime
         private readonly List<bool?> results = new();
         private GUIStyle title, button, label, progressStyle, feedbackStyle;
         private Texture2D kuro;
+        private Texture2D[] kuroOutfits;
+        private readonly string[] outfitNames =
+        {
+            "いつもの くろ", "きいろい おうかん", "みずいろ ベレーぼう", "むらさきの めがね", "おはなの かんむり",
+            "みどりの たんけんぼう", "ピンクの おおきな リボン", "ほしぞらの まほうぼう", "コックさんの ぼうし",
+            "ひまわりの かざり", "にじいろ パーティーぼう", "いちごの かざり", "よつばの クローバー",
+            "かいがらの かざり", "もみじの かんむり", "サンタさんの ぼうし", "うさぎの みみ",
+            "しょうぼうしの ヘルメット", "かんごしさんの ぼうし", "けいさつかんの ぼうし", "そつぎょうぼう",
+            "うちゅうひこうしの ヘルメット", "パイロットの ぼうし", "かいぞくの ぼうし", "きしの かんむり",
+            "ドラゴンの つの", "ようせいの かんむり", "おつきさまの ティアラ", "ほうせきの おうかん",
+            "ぎんがの おうかん", "ダイヤと にじの おうかん"
+        };
+        private readonly int[] outfitUnlocks =
+        {
+            0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300,
+            330, 360, 390, 420, 450, 480, 510, 540, 570, 600,
+            630, 660, 690, 720, 750, 780, 810, 840, 870, 900
+        };
+        private int outfitPage;
         private Texture2D cream, pink, mint, sky, yellow, lavender, green, red, referenceOrange;
         private readonly List<GameObject> freeGrid = new();
         private readonly List<GameObject> modeGround = new();
@@ -47,6 +66,40 @@ namespace Tsumiki.Runtime
             left.transform.position = Vector3.left * 2.25f; right.transform.position = Vector3.right * 2.25f;
             var light = new GameObject("ひかり").AddComponent<Light>(); light.type = LightType.Directional; light.intensity = 1.1f; light.transform.rotation = Quaternion.Euler(50, -30, 0);
             kuro = Resources.Load<Texture2D>("Characters/kuro_neutral");
+            kuroOutfits = new[]
+            {
+                kuro,
+                Resources.Load<Texture2D>("Characters/kuro_crown"),
+                Resources.Load<Texture2D>("Characters/kuro_beret"),
+                Resources.Load<Texture2D>("Characters/kuro_glasses"),
+                Resources.Load<Texture2D>("Characters/kuro_flowers"),
+                Resources.Load<Texture2D>("Characters/kuro_explorer"),
+                Resources.Load<Texture2D>("Characters/kuro_headbow"),
+                Resources.Load<Texture2D>("Characters/kuro_wizard"),
+                Resources.Load<Texture2D>("Characters/kuro_chef"),
+                Resources.Load<Texture2D>("Characters/kuro_sunflower"),
+                Resources.Load<Texture2D>("Characters/kuro_party"),
+                Resources.Load<Texture2D>("Characters/kuro_strawberry"),
+                Resources.Load<Texture2D>("Characters/kuro_clover"),
+                Resources.Load<Texture2D>("Characters/kuro_seashell"),
+                Resources.Load<Texture2D>("Characters/kuro_autumn"),
+                Resources.Load<Texture2D>("Characters/kuro_santa"),
+                Resources.Load<Texture2D>("Characters/kuro_bunny"),
+                Resources.Load<Texture2D>("Characters/kuro_firefighter"),
+                Resources.Load<Texture2D>("Characters/kuro_nurse"),
+                Resources.Load<Texture2D>("Characters/kuro_police"),
+                Resources.Load<Texture2D>("Characters/kuro_graduation"),
+                Resources.Load<Texture2D>("Characters/kuro_astronaut"),
+                Resources.Load<Texture2D>("Characters/kuro_pilot"),
+                Resources.Load<Texture2D>("Characters/kuro_pirate"),
+                Resources.Load<Texture2D>("Characters/kuro_knight"),
+                Resources.Load<Texture2D>("Characters/kuro_dragon"),
+                Resources.Load<Texture2D>("Characters/kuro_fairy"),
+                Resources.Load<Texture2D>("Characters/kuro_moon"),
+                Resources.Load<Texture2D>("Characters/kuro_jewel"),
+                Resources.Load<Texture2D>("Characters/kuro_galaxy"),
+                Resources.Load<Texture2D>("Characters/kuro_diamond")
+            };
         }
 
         private void Update()
@@ -81,7 +134,7 @@ namespace Tsumiki.Runtime
             {
                 case Page.Home: Home(); break; case Page.Levels: Levels(); break; case Page.Count: Count(); break;
                 case Page.Free: Free(); break; case Page.Compare: Compare(); break; case Page.View: View(); break;
-                case Page.Settings: Settings(); break; case Page.Parent: Parent(); break;
+                case Page.Settings: Settings(); break; case Page.DressUp: DressUp(); break; case Page.Parent: Parent(); break;
             }
         }
 
@@ -161,7 +214,8 @@ namespace Tsumiki.Runtime
             var ornament = new GUIStyle(progressStyle) { fontSize=30 }; ornament.normal.textColor=new Color(.76f,.58f,.22f);
             GUI.Label(new Rect(198,55,45,45),"✦",ornament); GUI.Label(new Rect(950,55,45,45),"✦",ornament);
             GUI.color=new Color(1f,1f,1f,.72f);GUI.DrawTexture(new Rect(315,135,800,294),cream);GUI.color=Color.white;
-            if (kuro && PlayerPrefs.GetInt("kuro", 1) == 1) GUI.DrawTexture(new Rect(45, 145, 250, 250), kuro, ScaleMode.ScaleToFit, true);
+            var currentKuro = CurrentKuro();
+            if (currentKuro && PlayerPrefs.GetInt("kuro", 1) == 1) GUI.DrawTexture(new Rect(45, 145, 250, 250), currentKuro, ScaleMode.ScaleToFit, true);
             Mode(new Rect(350,155,345,95), "① ブロックは\nいくつ？", Page.Count, pink); Mode(new Rect(735,155,345,95), "② じゆうに\nつんでみよう", Page.Free, mint);
             Mode(new Rect(350,295,345,95), "③ どっちが\nおおい？", Page.Compare, sky); Mode(new Rect(735,295,345,95), "④ どこから\nみてる？", Page.View, yellow);
             if (GUI.Button(new Rect(380,465,230,70), "⚙ せってい", ColorButton(lavender))) page = Page.Settings;
@@ -403,6 +457,7 @@ namespace Tsumiki.Runtime
             message = ok ? "○ せいかい！\nすごい！" : page == Page.Count ? $"× おしいね\nこたえは {a.TotalCount}こ" : "× おしいね\nもういちど みてみよう";
             if(ok) correct++; waitingForNext = true;
             PlayerPrefs.SetInt("solvedCount",PlayerPrefs.GetInt("solvedCount")+1);
+            if (ok) PlayerPrefs.SetInt("correctCount",PlayerPrefs.GetInt("correctCount")+1);
             if (ok && page == Page.Count)
             {
                 pendingTotal = total;
@@ -505,6 +560,47 @@ namespace Tsumiki.Runtime
         private void Settings()
         {
             Header("せってい"); Toggle(150,"こえ","voice",true); Toggle(250,"おと","sfx",true); Toggle(350,"おんがく","bgm",false); Toggle(450,"くろ","kuro",true);
+            if (ChoiceButton(new Rect(350,550,500,75),"くろの きせかえ",pink)){outfitPage=0;page=Page.DressUp;}
+        }
+
+        private Texture2D CurrentKuro()
+        {
+            if (kuroOutfits == null || kuroOutfits.Length == 0) return kuro;
+            var selected=Mathf.Clamp(PlayerPrefs.GetInt("kuroOutfit",0),0,kuroOutfits.Length-1);
+            if(PlayerPrefs.GetInt("correctCount",0)<outfitUnlocks[selected]) selected=0;
+            return kuroOutfits[selected] ? kuroOutfits[selected] : kuro;
+        }
+
+        private void DressUp()
+        {
+            Header("くろの きせかえ");
+            var correctAnswers=PlayerPrefs.GetInt("correctCount",0);
+            GUI.Label(new Rect(45,115,390,55),$"せいかい　{correctAnswers}もん",label);
+            var preview=CurrentKuro();
+            if(preview) GUI.DrawTexture(new Rect(55,180,365,365),preview,ScaleMode.ScaleToFit,true);
+            GUI.Label(new Rect(55,555,365,80),"30もん せいかいするたびに\n900もんまで グッズが ふえるよ",new GUIStyle(label){fontSize=27,alignment=TextAnchor.MiddleCenter});
+            var selected=Mathf.Clamp(PlayerPrefs.GetInt("kuroOutfit",0),0,outfitNames.Length-1);
+            const int outfitsPerPage=6;
+            var pageCount=Mathf.CeilToInt(outfitNames.Length/(float)outfitsPerPage);
+            outfitPage=Mathf.Clamp(outfitPage,0,pageCount-1);
+            var start=outfitPage*outfitsPerPage;
+            var end=Mathf.Min(start+outfitsPerPage,outfitNames.Length);
+            for(var i=start;i<end;i++)
+            {
+                var row=i-start;
+                var unlocked=correctAnswers>=outfitUnlocks[i];
+                var remaining=Mathf.Max(0,outfitUnlocks[i]-correctAnswers);
+                var text=unlocked?$"{(selected==i?"✓ ":"")}{outfitNames[i]}":$"まだ ひみつ　あと {remaining}もん";
+                GUI.enabled=unlocked;
+                if(ChoiceButton(new Rect(485,105+row*88,610,68),text,new[]{cream,yellow,sky,lavender,mint,pink}[row%6]))
+                {
+                    PlayerPrefs.SetInt("kuroOutfit",i);PlayerPrefs.Save();
+                }
+                GUI.enabled=true;
+            }
+            if(outfitPage>0&&GUI.Button(new Rect(500,650,180,65),"◀ まえ",ColorButton(sky)))outfitPage--;
+            GUI.Label(new Rect(700,650,180,65),$"{outfitPage+1}/{pageCount}",progressStyle);
+            if(outfitPage<pageCount-1&&GUI.Button(new Rect(900,650,180,65),"つぎ ▶",ColorButton(sky)))outfitPage++;
         }
 
         private static void SetViewCamera(bool raiseProblem)
@@ -524,7 +620,8 @@ namespace Tsumiki.Runtime
         private void Parent()
         {
             Header("おうちの かたへ"); GUI.Label(new Rect(280,150,650,100),$"これまでに\n{PlayerPrefs.GetInt("solvedCount")}もん ときました",label);
-            GUI.Label(new Rect(280,250,650,160),"購入機能は StoreKit テスト設定で準備中です。\n初級は通信なしで遊べます。",label);
+            GUI.Label(new Rect(280,250,650,80),$"せいかいは {PlayerPrefs.GetInt("correctCount")}もんです。",label);
+            GUI.Label(new Rect(280,330,650,160),"購入機能は StoreKit テスト設定で準備中です。\n初級は通信なしで遊べます。",label);
         }
 
         private void Header(string text)

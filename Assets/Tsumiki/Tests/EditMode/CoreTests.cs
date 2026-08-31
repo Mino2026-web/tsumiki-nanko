@@ -25,6 +25,7 @@ namespace Tsumiki.Tests
             Assert.That(map.IsConnected(), Is.True);
             Assert.That(map.HasOnlyInferableHiddenBlocks, Is.True);
             Assert.That(generator.CountChoices(map, level).Count, Is.EqualTo(5));
+            Assert.That(generator.CountChoices(map, level), Is.Ordered.Ascending);
         }
     }
 }

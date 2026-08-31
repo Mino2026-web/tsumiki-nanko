@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Tsumiki.Core;
 using UnityEngine;
 
@@ -12,9 +13,10 @@ namespace Tsumiki.Runtime
         private void Awake()
         {
             materials = new Material[TsumikiPalette.Blocks.Length];
-            // Sprites/Default is bundled on every target used by this project and
-            // avoids the magenta fallback shown when no URP pipeline asset is set.
-            var shader = Shader.Find("Sprites/Default");
+            // This unlit shader keeps every block face at the exact same color when
+            // the model rotates; directional lighting must not recolor the blocks.
+            var shader = Resources.Load<Shader>("Shaders/TsumikiFlatColor");
+            if (!shader) shader = Shader.Find("Sprites/Default");
             for (var i = 0; i < materials.Length; i++)
             {
                 materials[i] = new Material(shader) { color = TsumikiPalette.Blocks[i] };
@@ -24,13 +26,28 @@ namespace Tsumiki.Runtime
             }
         }
 
-        public void Show(HeightMap map, bool hideOccluded = false)
+        public void Show(HeightMap map, bool hideSome = false)
         {
             Clear();
             var center = new Vector3((map.Width - 1) * .5f, 0, (map.Depth - 1) * .5f);
-            foreach (var block in map.Blocks())
+            var blocks = map.Blocks().ToList();
+            var hiddenBlocks = new HashSet<GridPosition>();
+            if (hideSome && blocks.Count > 0)
             {
-                if (hideOccluded && map.IsHidden(block)) continue;
+                var hideCount = Mathf.Max(1, Mathf.CeilToInt(blocks.Count / 3f));
+                // Prefer blocks already behind others, then hide high blocks so the
+                // change is still obvious even for a simple one-column stack.
+                foreach (var block in blocks
+                    .OrderByDescending(map.IsHidden)
+                    .ThenByDescending(value => value.Z)
+                    .ThenByDescending(value => value.X + value.Y)
+                    .Take(hideCount))
+                    hiddenBlocks.Add(block);
+            }
+
+            foreach (var block in blocks)
+            {
+                if (hiddenBlocks.Contains(block)) continue;
                 var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 cube.name = $"つみき {block}";
                 cube.transform.SetParent(transform, false);
@@ -39,7 +56,10 @@ namespace Tsumiki.Runtime
                 cube.AddComponent<BlockCell>().Set(block.X, block.Y);
                 // Every face-adjacent cube receives a different one of the five colors.
                 var index = (block.X + block.Y * 2 + block.Z * 3) % materials.Length;
-                cube.GetComponent<Renderer>().sharedMaterial = materials[index];
+                var renderer = cube.GetComponent<Renderer>();
+                renderer.sharedMaterial = materials[index];
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
                 AddEdges(cube.transform);
                 cubes.Add(cube);
             }
