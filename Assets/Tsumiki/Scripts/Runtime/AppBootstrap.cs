@@ -7,8 +7,9 @@ namespace Tsumiki.Runtime
 {
     public sealed class AppBootstrap : MonoBehaviour
     {
-        private enum Page { Home, Levels, Count, Free, Compare, View, Settings, DressUp, Parent }
+        private enum Page { Home, Levels, Count, Free, Compare, View, Settings, DressUp, ParentGate, Parent, Store }
         private Page page, requestedMode;
+        private Page pageAfterParentGate = Page.Parent;
         private BlockRenderer left, right;
         private readonly PuzzleGenerator generator = new();
         private HeightMap a, b;
@@ -49,6 +50,7 @@ namespace Tsumiki.Runtime
         private GameObject selectionMarker;
         private int selectedX = 2, selectedY = 2;
         private bool freeBlocksHidden;
+        private int parentGateAnswer;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureApp() { if (!FindAnyObjectByType<AppBootstrap>()) new GameObject("つみき なんこ？").AddComponent<AppBootstrap>(); }
@@ -100,6 +102,7 @@ namespace Tsumiki.Runtime
                 Resources.Load<Texture2D>("Characters/kuro_galaxy"),
                 Resources.Load<Texture2D>("Characters/kuro_diamond")
             };
+            _ = AppPurchaseManager.Instance;
         }
 
         private void Update()
@@ -134,7 +137,8 @@ namespace Tsumiki.Runtime
             {
                 case Page.Home: Home(); break; case Page.Levels: Levels(); break; case Page.Count: Count(); break;
                 case Page.Free: Free(); break; case Page.Compare: Compare(); break; case Page.View: View(); break;
-                case Page.Settings: Settings(); break; case Page.DressUp: DressUp(); break; case Page.Parent: Parent(); break;
+                case Page.Settings: Settings(); break; case Page.DressUp: DressUp(); break;
+                case Page.ParentGate: ParentGate(); break; case Page.Parent: Parent(); break; case Page.Store: Store(); break;
             }
         }
 
@@ -219,7 +223,7 @@ namespace Tsumiki.Runtime
             Mode(new Rect(350,155,345,95), "① ブロックは\nいくつ？", Page.Count, pink); Mode(new Rect(735,155,345,95), "② じゆうに\nつんでみよう", Page.Free, mint);
             Mode(new Rect(350,295,345,95), "③ どっちが\nおおい？", Page.Compare, sky); Mode(new Rect(735,295,345,95), "④ どこから\nみてる？", Page.View, yellow);
             if (GUI.Button(new Rect(380,465,230,70), "⚙ せってい", ColorButton(lavender))) page = Page.Settings;
-            if (GUI.Button(new Rect(650,455,280,90), "⌂ おうちの\nかたへ", ColorButton(pink))) page = Page.Parent;
+            if (GUI.Button(new Rect(650,455,280,90), "⌂ おうちの\nかたへ", ColorButton(pink))) OpenParentGate(Page.Parent);
         }
 
         private void Mode(Rect r, string text, Page mode, Texture2D color)
@@ -236,8 +240,13 @@ namespace Tsumiki.Runtime
             for (var i = 1; i <= 5; i++)
             {
                 var name = i <= 2 ? "★☆☆ やさしい" : i <= 4 ? "★★☆ ふつう" : "★★★ むずかしい";
-                if (ChoiceButton(new Rect(330,120+(i-1)*105,535,78), $"{name}　{i}", new[]{mint,sky,yellow,pink,lavender}[i-1]))
-                { level = i; Start(requestedMode); }
+                var unlocked = i <= 2 || (i <= 4 ? AppPurchaseManager.IntermediateUnlocked : AppPurchaseManager.AdvancedUnlocked);
+                var levelText = unlocked ? $"{name}　{i}" : $"🔒 {name}　{i}";
+                if (ChoiceButton(new Rect(330,120+(i-1)*105,535,78), levelText, new[]{mint,sky,yellow,pink,lavender}[i-1]))
+                {
+                    if (unlocked) { level = i; Start(requestedMode); }
+                    else OpenParentGate(Page.Store);
+                }
             }
             GUI.Label(new Rect(280,655,635,55), message, label);
         }
@@ -621,7 +630,55 @@ namespace Tsumiki.Runtime
         {
             Header("おうちの かたへ"); GUI.Label(new Rect(280,150,650,100),$"これまでに\n{PlayerPrefs.GetInt("solvedCount")}もん ときました",label);
             GUI.Label(new Rect(280,250,650,80),$"せいかいは {PlayerPrefs.GetInt("correctCount")}もんです。",label);
-            GUI.Label(new Rect(280,330,650,160),"購入機能は StoreKit テスト設定で準備中です。\n初級は通信なしで遊べます。",label);
+            GUI.Label(new Rect(280,330,650,100),"初級と「じゆうにつんでみよう」は無料です。\n中級・上級は一度の購入でずっと遊べます。",label);
+            if(ChoiceButton(new Rect(345,465,505,80),"レベルの こうにゅう・ふくげん",yellow)) page=Page.Store;
+        }
+
+        private void OpenParentGate(Page destination)
+        {
+            pageAfterParentGate=destination;
+            parentGateAnswer=25;
+            page=Page.ParentGate;
+        }
+
+        private void ParentGate()
+        {
+            Header("おうちの かたへ");
+            GUI.Label(new Rect(250,145,700,115),"ここから先は保護者の方が操作してください。\n17 ＋ 8 の答えを選んでください。",label);
+            var answers=new[]{24,25,26};
+            for(var i=0;i<answers.Length;i++)
+            {
+                if(!ChoiceButton(new Rect(285+i*220,315,185,90),answers[i].ToString(),new[]{sky,yellow,pink}[i])) continue;
+                if(answers[i]==parentGateAnswer) page=pageAfterParentGate;
+                else message="答えが違います。保護者の方と確認してください。";
+            }
+            GUI.Label(new Rect(245,450,710,80),message,label);
+        }
+
+        private void Store()
+        {
+            Header("レベルを ひらく");
+            var purchases=AppPurchaseManager.Instance;
+            var intermediate=AppPurchaseManager.IntermediateUnlocked;
+            var advanced=AppPurchaseManager.AdvancedUnlocked;
+            GUI.Label(new Rect(220,105,760,65),"買い切りです。毎月の支払いはありません。",label);
+            var y=190f;
+            if(!intermediate && !advanced)
+            {
+                if(ChoiceButton(new Rect(260,y,675,78),$"中級をひらく　{purchases.Price(AppPurchaseManager.IntermediateProductId,"¥300")}",mint)) purchases.Buy(AppPurchaseManager.IntermediateProductId); y+=95;
+                if(ChoiceButton(new Rect(260,y,675,78),$"上級をひらく　{purchases.Price(AppPurchaseManager.AdvancedProductId,"¥300")}",sky)) purchases.Buy(AppPurchaseManager.AdvancedProductId); y+=95;
+                if(ChoiceButton(new Rect(260,y,675,90),$"中級・上級をまとめてひらく　{purchases.Price(AppPurchaseManager.AllLevelsProductId,"¥500")}",yellow)) purchases.Buy(AppPurchaseManager.AllLevelsProductId); y+=110;
+            }
+            else
+            {
+                GUI.Label(new Rect(260,y,675,70),$"中級　{(intermediate?"購入済み":"未購入")}",label); y+=80;
+                GUI.Label(new Rect(260,y,675,70),$"上級　{(advanced?"購入済み":"未購入")}",label); y+=80;
+                if(!intermediate && ChoiceButton(new Rect(260,y,675,78),$"中級をひらく　{purchases.Price(AppPurchaseManager.IntermediateProductId,"¥300")}",mint)) purchases.Buy(AppPurchaseManager.IntermediateProductId);
+                if(!advanced && ChoiceButton(new Rect(260,y,675,78),$"上級をひらく　{purchases.Price(AppPurchaseManager.AdvancedProductId,"¥300")}",sky)) purchases.Buy(AppPurchaseManager.AdvancedProductId);
+                y+=95;
+            }
+            if(ChoiceButton(new Rect(385,570,425,70),"以前の購入を復元",lavender)) purchases.RestorePurchases();
+            GUI.Label(new Rect(170,650,855,75),purchases.Status,new GUIStyle(label){fontSize=25,alignment=TextAnchor.MiddleCenter});
         }
 
         private void Header(string text)

@@ -1,7 +1,7 @@
 {
   "name": "Tsumiki.Runtime",
   "rootNamespace": "Tsumiki",
-  "references": [],
+  "references": ["UnityEngine.Purchasing", "UnityEngine.Purchasing.Stores"],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,
