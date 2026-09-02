@@ -28,14 +28,14 @@ namespace Tsumiki.Runtime
             source = gameObject.AddComponent<AudioSource>();
             source.playOnAwake = false;
             source.loop = false;
-            source.volume = .12f;
+            source.volume = .22f;
             tracks = new AudioClip[TrackPaths.Length];
             for (var i = 0; i < TrackPaths.Length; i++) tracks[i] = Resources.Load<AudioClip>(TrackPaths[i]);
         }
 
         private void Update()
         {
-            var enabledByUser = PlayerPrefs.GetInt("bgm", 0) == 1;
+            var enabledByUser = PlayerPrefs.GetInt("bgm", 1) == 1;
             if (!enabledByUser)
             {
                 if (source.isPlaying) source.Pause();

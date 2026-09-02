@@ -51,6 +51,8 @@ namespace Tsumiki.Runtime
         private int selectedX = 2, selectedY = 2;
         private bool freeBlocksHidden;
         private int parentGateAnswer;
+        private AudioSource sfxSource;
+        private AudioClip correctSound;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureApp() { if (!FindAnyObjectByType<AppBootstrap>()) new GameObject("つみき なんこ？").AddComponent<AppBootstrap>(); }
@@ -102,6 +104,10 @@ namespace Tsumiki.Runtime
                 Resources.Load<Texture2D>("Characters/kuro_galaxy"),
                 Resources.Load<Texture2D>("Characters/kuro_diamond")
             };
+            sfxSource = gameObject.AddComponent<AudioSource>();
+            sfxSource.playOnAwake = false;
+            sfxSource.spatialBlend = 0f;
+            correctSound = CreateCorrectSound();
             _ = AppPurchaseManager.Instance;
         }
 
@@ -123,17 +129,17 @@ namespace Tsumiki.Runtime
         {
             var camera = Camera.main;
             if (!camera) return;
-            var hits = Physics.RaycastAll(camera.ScreenPointToRay(screenPosition), 100f);
-            System.Array.Sort(hits, (first, second) => first.distance.CompareTo(second.distance));
-            foreach (var hit in hits)
-            {
-                var cell = hit.collider.GetComponent<BlockCell>();
-                if (!cell || !a.InBounds(cell.X, cell.Y)) continue;
-                selectedX = cell.X;
-                selectedY = cell.Y;
-                UpdateSelectionMarker();
-                return;
-            }
+            var ray = camera.ScreenPointToRay(screenPosition);
+            var floor = new Plane(Vector3.up, Vector3.zero);
+            if (!floor.Raycast(ray, out var distance)) return;
+            var worldPoint = ray.GetPoint(distance);
+            var localPoint = Quaternion.Inverse(left.transform.rotation) * (worldPoint - left.transform.position);
+            var x = Mathf.FloorToInt(localPoint.x + a.Width * .5f);
+            var y = Mathf.FloorToInt(localPoint.z + a.Depth * .5f);
+            if (!a.InBounds(x, y)) return;
+            selectedX = x;
+            selectedY = y;
+            UpdateSelectionMarker();
         }
 
         private void OnGUI()
@@ -419,14 +425,13 @@ namespace Tsumiki.Runtime
 
         private void AddViewReferenceStrip(Vector3 center, float size)
         {
-            var material=TransparentMaterial(new Color(.95f,.48f,.15f,.96f));
-            material.renderQueue = 3100;
+            var material=OpaqueMaterial(new Color(.95f,.42f,.06f,1f));
             var cell=size/8f; var frontZ=center.z-size*.5f+cell*.5f;
             for(var i=-2;i<=2;i++)
             {
                 var marker=GameObject.CreatePrimitive(PrimitiveType.Cube);marker.name="てまえの きじゅん";
-                marker.transform.position=new Vector3(center.x+i*cell,.025f,frontZ);
-                marker.transform.localScale=new Vector3(cell*.96f,.09f,cell*.96f);
+                marker.transform.position=new Vector3(center.x+i*cell,.055f,frontZ);
+                marker.transform.localScale=new Vector3(cell*.92f,.16f,cell*.92f);
                 marker.GetComponent<Renderer>().sharedMaterial=material;marker.GetComponent<Collider>().enabled=false;
                 modeGround.Add(marker);viewReferenceTiles.Add(marker);
             }
@@ -458,6 +463,17 @@ namespace Tsumiki.Runtime
             return material;
         }
 
+        private static Material OpaqueMaterial(Color color)
+        {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit");
+            if (!shader) shader = Shader.Find("Unlit/Color");
+            if (!shader) shader = Shader.Find("Sprites/Default");
+            var material = new Material(shader) { color = color };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", color);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", color);
+            return material;
+        }
+
         private void UpdateSelectionMarker()
         {
             foreach (var tile in freeGrid)
@@ -483,7 +499,8 @@ namespace Tsumiki.Runtime
 
         private void ClearModeGround()
         {
-            foreach (var floor in modeGround) if (floor) Destroy(floor); modeGround.Clear();viewReferenceTiles.Clear();
+            foreach (var floor in modeGround) if (floor) { floor.SetActive(false); Destroy(floor); }
+            modeGround.Clear();viewReferenceTiles.Clear();
         }
 
         private void Answer(bool ok, int total)
@@ -492,6 +509,8 @@ namespace Tsumiki.Runtime
             results[question - 1] = ok;
             message = ok ? "○ せいかい！\nすごい！" : page == Page.Count ? $"× おしいね\nこたえは {a.TotalCount}こ" : "× おしいね\nもういちど みてみよう";
             if(ok) correct++; waitingForNext = true;
+            if (ok && PlayerPrefs.GetInt("sfx", 1) == 1 && sfxSource && correctSound)
+                sfxSource.PlayOneShot(correctSound, .8f);
             PlayerPrefs.SetInt("solvedCount",PlayerPrefs.GetInt("solvedCount")+1);
             if (ok) PlayerPrefs.SetInt("correctCount",PlayerPrefs.GetInt("correctCount")+1);
             if (ok && page == Page.Count)
@@ -499,6 +518,25 @@ namespace Tsumiki.Runtime
                 pendingTotal = total;
                 Invoke(nameof(AdvanceAfterCorrect), 1.0f);
             }
+        }
+
+        private static AudioClip CreateCorrectSound()
+        {
+            const int sampleRate = 44100;
+            const float duration = .46f;
+            var samples = new float[Mathf.CeilToInt(sampleRate * duration)];
+            for (var i = 0; i < samples.Length; i++)
+            {
+                var time = i / (float)sampleRate;
+                var secondTone = time >= .23f;
+                var toneTime = secondTone ? time - .23f : time;
+                var frequency = secondTone ? 784f : 659.25f;
+                var envelope = Mathf.Clamp01(toneTime / .012f) * Mathf.Clamp01((.21f - toneTime) / .07f);
+                samples[i] = Mathf.Sin(2f * Mathf.PI * frequency * toneTime) * envelope * .32f;
+            }
+            var clip = AudioClip.Create("せいかい ピンポン", samples.Length, 1, sampleRate, false);
+            clip.SetData(samples, 0);
+            return clip;
         }
 
         private void BuildViewChoices()
@@ -595,7 +633,7 @@ namespace Tsumiki.Runtime
 
         private void Settings()
         {
-            Header("せってい"); Toggle(150,"こえ","voice",true); Toggle(250,"おと","sfx",true); Toggle(350,"おんがく","bgm",false); Toggle(450,"くろ","kuro",true);
+            Header("せってい"); Toggle(150,"こえ","voice",true); Toggle(250,"おと","sfx",true); Toggle(350,"おんがく","bgm",true); Toggle(450,"くろ","kuro",true);
             if (ChoiceButton(new Rect(350,550,500,75),"くろの きせかえ",pink)){outfitPage=0;page=Page.DressUp;}
         }
 
