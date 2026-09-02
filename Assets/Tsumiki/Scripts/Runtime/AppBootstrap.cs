@@ -107,12 +107,33 @@ namespace Tsumiki.Runtime
 
         private void Update()
         {
-            if (page != Page.Free || !Input.GetMouseButtonDown(0)) return;
-            var ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-            if (!Physics.Raycast(ray, out var hit)) return;
-            var cell = hit.collider.GetComponent<BlockCell>();
-            if (!cell) return;
-            selectedX = cell.X; selectedY = cell.Y; UpdateSelectionMarker();
+            if (page != Page.Free) return;
+
+            // iOS uses touch input directly. GetMouseButtonDown is not reliable on
+            // every Unity/iOS input configuration, so only use it as a fallback.
+            if (Input.touchCount > 0)
+            {
+                var touch = Input.GetTouch(0);
+                if (touch.phase == TouchPhase.Began) SelectFreeCell(touch.position);
+            }
+            else if (Input.GetMouseButtonDown(0)) SelectFreeCell(Input.mousePosition);
+        }
+
+        private void SelectFreeCell(Vector2 screenPosition)
+        {
+            var camera = Camera.main;
+            if (!camera) return;
+            var hits = Physics.RaycastAll(camera.ScreenPointToRay(screenPosition), 100f);
+            System.Array.Sort(hits, (first, second) => first.distance.CompareTo(second.distance));
+            foreach (var hit in hits)
+            {
+                var cell = hit.collider.GetComponent<BlockCell>();
+                if (!cell || !a.InBounds(cell.X, cell.Y)) continue;
+                selectedX = cell.X;
+                selectedY = cell.Y;
+                UpdateSelectionMarker();
+                return;
+            }
         }
 
         private void OnGUI()
@@ -223,7 +244,8 @@ namespace Tsumiki.Runtime
             Mode(new Rect(350,155,345,95), "① ブロックは\nいくつ？", Page.Count, pink); Mode(new Rect(735,155,345,95), "② じゆうに\nつんでみよう", Page.Free, mint);
             Mode(new Rect(350,295,345,95), "③ どっちが\nおおい？", Page.Compare, sky); Mode(new Rect(735,295,345,95), "④ どこから\nみてる？", Page.View, yellow);
             if (GUI.Button(new Rect(380,465,230,70), "⚙ せってい", ColorButton(lavender))) page = Page.Settings;
-            if (GUI.Button(new Rect(650,455,280,90), "⌂ おうちの\nかたへ", ColorButton(pink))) OpenParentGate(Page.Parent);
+            var parentButton = new GUIStyle(ColorButton(pink)) { fontSize = 30, wordWrap = false };
+            if (GUI.Button(new Rect(635,465,320,70), "⌂ おうちの かたへ", parentButton)) OpenParentGate(Page.Parent);
         }
 
         private void Mode(Rect r, string text, Page mode, Texture2D color)
@@ -398,12 +420,13 @@ namespace Tsumiki.Runtime
         private void AddViewReferenceStrip(Vector3 center, float size)
         {
             var material=TransparentMaterial(new Color(.95f,.48f,.15f,.96f));
+            material.renderQueue = 3100;
             var cell=size/8f; var frontZ=center.z-size*.5f+cell*.5f;
             for(var i=-2;i<=2;i++)
             {
                 var marker=GameObject.CreatePrimitive(PrimitiveType.Cube);marker.name="てまえの きじゅん";
-                marker.transform.position=new Vector3(center.x+i*cell,-.015f,frontZ);
-                marker.transform.localScale=new Vector3(cell*.9f,.045f,cell*.9f);
+                marker.transform.position=new Vector3(center.x+i*cell,.025f,frontZ);
+                marker.transform.localScale=new Vector3(cell*.96f,.09f,cell*.96f);
                 marker.GetComponent<Renderer>().sharedMaterial=material;marker.GetComponent<Collider>().enabled=false;
                 modeGround.Add(marker);viewReferenceTiles.Add(marker);
             }
@@ -450,8 +473,12 @@ namespace Tsumiki.Runtime
 
         private void ClearFreeGrid()
         {
-            foreach (var tile in freeGrid) if (tile) Destroy(tile); freeGrid.Clear();
-            if (selectionMarker) Destroy(selectionMarker);
+            // Disable immediately so no selected tile can remain visible for a
+            // frame (or receive another touch) after the Back button is pressed.
+            foreach (var tile in freeGrid) if (tile) { tile.SetActive(false); Destroy(tile); }
+            freeGrid.Clear();
+            if (selectionMarker) { selectionMarker.SetActive(false); Destroy(selectionMarker); }
+            selectionMarker = null;
         }
 
         private void ClearModeGround()
