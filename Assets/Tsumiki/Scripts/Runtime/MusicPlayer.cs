@@ -35,8 +35,9 @@ namespace Tsumiki.Runtime
 
         private void Update()
         {
-            var enabledByUser = PlayerPrefs.GetInt("bgm", 1) == 1;
-            if (!enabledByUser)
+            var level = Mathf.Clamp(PlayerPrefs.GetInt("bgmLevel", 3),0,4);
+            source.volume = .32f * level / 4f;
+            if (level == 0)
             {
                 if (source.isPlaying) source.Pause();
                 return;

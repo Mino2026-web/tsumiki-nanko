@@ -63,6 +63,9 @@ namespace Tsumiki.Runtime
             Application.targetFrameRate = 60;
             Screen.autorotateToPortrait = Screen.autorotateToPortraitUpsideDown = false;
             var camera = Camera.main ? Camera.main : new GameObject("Main Camera") { tag = "MainCamera" }.AddComponent<Camera>();
+            if (!FindAnyObjectByType<AudioListener>()) camera.gameObject.AddComponent<AudioListener>();
+            AudioListener.pause = false;
+            AudioListener.volume = 1f;
             camera.orthographic = true; camera.orthographicSize = 6.15f;
             camera.backgroundColor = new Color(.66f, .87f, .96f, 1f);
             camera.clearFlags = CameraClearFlags.SolidColor;
@@ -541,8 +544,9 @@ namespace Tsumiki.Runtime
             results[question - 1] = ok;
             message = ok ? "○ せいかい！\nすごい！" : page == Page.Count ? $"× おしいね\nこたえは {a.TotalCount}こ" : "× おしいね\nもういちど みてみよう";
             if(ok) correct++; waitingForNext = true;
-            if (ok && PlayerPrefs.GetInt("sfx", 1) == 1 && sfxSource && correctSound)
-                sfxSource.PlayOneShot(correctSound, .8f);
+            var soundLevel = Mathf.Clamp(PlayerPrefs.GetInt("sfxLevel", 3), 0, 4);
+            if (ok && soundLevel > 0 && sfxSource && correctSound)
+                sfxSource.PlayOneShot(correctSound, soundLevel / 4f);
             PlayerPrefs.SetInt("solvedCount",PlayerPrefs.GetInt("solvedCount")+1);
             if (ok) PlayerPrefs.SetInt("correctCount",PlayerPrefs.GetInt("correctCount")+1);
             if (ok && page == Page.Count)
@@ -681,8 +685,27 @@ namespace Tsumiki.Runtime
 
         private void Settings()
         {
-            Header("せってい"); Toggle(150,"こえ","voice",true); Toggle(250,"おと","sfx",true); Toggle(350,"おんがく","bgm",true); Toggle(450,"くろ","kuro",true);
-            if (ChoiceButton(new Rect(350,550,500,75),"くろの きせかえ",pink)){outfitPage=0;page=Page.DressUp;}
+            Header("せってい");
+            VolumeSelector(165,"おと","sfxLevel");
+            VolumeSelector(310,"おんがく","bgmLevel");
+            Toggle(465,"くろ","kuro",true);
+            if (ChoiceButton(new Rect(350,575,500,75),"くろの きせかえ",pink)){outfitPage=0;page=Page.DressUp;}
+        }
+
+        private void VolumeSelector(float y, string text, string key)
+        {
+            var current = Mathf.Clamp(PlayerPrefs.GetInt(key,3),0,4);
+            var caption = new GUIStyle(label) { fontSize=31,alignment=TextAnchor.MiddleRight,wordWrap=false };
+            GUI.Label(new Rect(115,y,250,72),text,caption);
+            for(var value=0;value<=4;value++)
+            {
+                var selected=value==current;
+                var style=new GUIStyle(ColorButton(selected?yellow:cream)){fontSize=32};
+                if(!GUI.Button(new Rect(400+value*130,y,105,72),value.ToString(),style))continue;
+                PlayerPrefs.SetInt(key,value);PlayerPrefs.Save();
+            }
+            var hint = new GUIStyle(label) { fontSize=22,alignment=TextAnchor.MiddleCenter,wordWrap=false };
+            GUI.Label(new Rect(395,y+73,635,32),"0 オフ　　1 ちいさい　　2　　3 ひょうじゅん　　4 おおきい",hint);
         }
 
         private Texture2D CurrentKuro()
