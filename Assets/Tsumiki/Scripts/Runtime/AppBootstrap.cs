@@ -53,6 +53,7 @@ namespace Tsumiki.Runtime
         private int parentGateAnswer;
         private AudioSource sfxSource;
         private AudioClip correctSound;
+        private Vector2 parentScroll;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void EnsureApp() { if (!FindAnyObjectByType<AppBootstrap>()) new GameObject("つみき なんこ？").AddComponent<AppBootstrap>(); }
@@ -130,6 +131,23 @@ namespace Tsumiki.Runtime
             var camera = Camera.main;
             if (!camera) return;
             var ray = camera.ScreenPointToRay(screenPosition);
+
+            // Use the exact cell attached to the tapped floor/block first. This is
+            // essential when tapping a tall block: projecting through it to y=0
+            // lands on a different square because of the angled camera.
+            var hits = Physics.RaycastAll(ray, 100f);
+            System.Array.Sort(hits, (first, second) => first.distance.CompareTo(second.distance));
+            foreach (var hit in hits)
+            {
+                var tappedCell = hit.collider.GetComponent<BlockCell>();
+                if (!tappedCell || !a.InBounds(tappedCell.X, tappedCell.Y)) continue;
+                selectedX = tappedCell.X;
+                selectedY = tappedCell.Y;
+                UpdateSelectionMarker();
+                return;
+            }
+
+            // Mathematical fallback for the small gaps between floor tiles.
             var floor = new Plane(Vector3.up, Vector3.zero);
             if (!floor.Raycast(ray, out var distance)) return;
             var worldPoint = ray.GetPoint(distance);
@@ -427,14 +445,28 @@ namespace Tsumiki.Runtime
         {
             var material=OpaqueMaterial(new Color(.95f,.42f,.06f,1f));
             var cell=size/8f; var frontZ=center.z-size*.5f+cell*.5f;
+            var marker = new GameObject("てまえの きじゅん（5ます）");
+            var vertices = new List<Vector3>();
+            var triangles = new List<int>();
+            var half = cell * .44f;
             for(var i=-2;i<=2;i++)
             {
-                var marker=GameObject.CreatePrimitive(PrimitiveType.Cube);marker.name="てまえの きじゅん";
-                marker.transform.position=new Vector3(center.x+i*cell,.055f,frontZ);
-                marker.transform.localScale=new Vector3(cell*.92f,.16f,cell*.92f);
-                marker.GetComponent<Renderer>().sharedMaterial=material;marker.GetComponent<Collider>().enabled=false;
-                modeGround.Add(marker);viewReferenceTiles.Add(marker);
+                var x = center.x + i * cell;
+                var z = frontZ;
+                var start = vertices.Count;
+                vertices.Add(new Vector3(x-half,.075f,z-half));
+                vertices.Add(new Vector3(x+half,.075f,z-half));
+                vertices.Add(new Vector3(x+half,.075f,z+half));
+                vertices.Add(new Vector3(x-half,.075f,z+half));
+                // Draw both faces so the five squares remain visible on every iOS renderer.
+                triangles.AddRange(new[]{start,start+2,start+1,start,start+3,start+2,
+                    start,start+1,start+2,start,start+2,start+3});
             }
+            var mesh = new Mesh { name = "オレンジの 5ます" };
+            mesh.SetVertices(vertices); mesh.SetTriangles(triangles,0); mesh.RecalculateBounds();
+            marker.AddComponent<MeshFilter>().sharedMesh=mesh;
+            marker.AddComponent<MeshRenderer>().sharedMaterial=material;
+            modeGround.Add(marker);viewReferenceTiles.Add(marker);
         }
 
         private void AddGroundGrid(Vector3 center, float size)
@@ -523,20 +555,36 @@ namespace Tsumiki.Runtime
         private static AudioClip CreateCorrectSound()
         {
             const int sampleRate = 44100;
-            const float duration = .46f;
+            const float duration = 1.35f;
             var samples = new float[Mathf.CeilToInt(sampleRate * duration)];
             for (var i = 0; i < samples.Length; i++)
             {
                 var time = i / (float)sampleRate;
-                var secondTone = time >= .23f;
-                var toneTime = secondTone ? time - .23f : time;
-                var frequency = secondTone ? 784f : 659.25f;
-                var envelope = Mathf.Clamp01(toneTime / .012f) * Mathf.Clamp01((.21f - toneTime) / .07f);
-                samples[i] = Mathf.Sin(2f * Mathf.PI * frequency * toneTime) * envelope * .32f;
+                // A soft bell: E6 (mi) followed by C6 (do).
+                var value = BellTone(time, 1318.51f);
+                if (time >= .32f) value += BellTone(time - .32f, 1046.50f);
+                // Two quiet reflections create a gentle, spacious tail.
+                if (time >= .17f) value += BellTone(time - .17f, 1318.51f) * .12f;
+                if (time >= .49f) value += BellTone(time - .49f, 1046.50f) * .12f;
+                if (time >= .34f) value += BellTone(time - .34f, 1318.51f) * .055f;
+                if (time >= .66f) value += BellTone(time - .66f, 1046.50f) * .055f;
+                samples[i] = Mathf.Clamp(value * .28f, -.85f, .85f);
             }
             var clip = AudioClip.Create("せいかい ピンポン", samples.Length, 1, sampleRate, false);
             clip.SetData(samples, 0);
             return clip;
+        }
+
+        private static float BellTone(float time, float frequency)
+        {
+            if (time < 0f || time > .92f) return 0f;
+            var attack = Mathf.Clamp01(time / .012f);
+            var decay = Mathf.Exp(-3.7f * time);
+            var fundamental = Mathf.Sin(2f * Mathf.PI * frequency * time);
+            var softOctave = Mathf.Sin(2f * Mathf.PI * frequency * 2.01f * time) * .20f;
+            var bellColor = Mathf.Sin(2f * Mathf.PI * frequency * 2.72f * time) * .105f;
+            var air = Mathf.Sin(2f * Mathf.PI * frequency * 4.08f * time) * .035f;
+            return (fundamental + softOctave + bellColor + air) * attack * decay;
         }
 
         private void BuildViewChoices()
@@ -693,10 +741,22 @@ namespace Tsumiki.Runtime
 
         private void Parent()
         {
-            Header("おうちの かたへ"); GUI.Label(new Rect(280,150,650,100),$"これまでに\n{PlayerPrefs.GetInt("solvedCount")}もん ときました",label);
-            GUI.Label(new Rect(280,250,650,80),$"せいかいは {PlayerPrefs.GetInt("correctCount")}もんです。",label);
-            GUI.Label(new Rect(280,330,650,100),"初級と「じゆうにつんでみよう」は無料です。\n中級・上級は一度の購入でずっと遊べます。",label);
-            if(ChoiceButton(new Rect(345,465,505,80),"レベルの こうにゅう・ふくげん",yellow)) page=Page.Store;
+            Header("おうちの かたへ");
+            var scrollStyle = new GUIStyle(GUI.skin.verticalScrollbar) { fixedWidth = 34f };
+            var thumbStyle = new GUIStyle(GUI.skin.verticalScrollbarThumb) { fixedWidth = 34f };
+            GUI.skin.verticalScrollbar = scrollStyle;
+            GUI.skin.verticalScrollbarThumb = thumbStyle;
+            parentScroll = GUI.BeginScrollView(
+                new Rect(105,120,984,535), parentScroll, new Rect(0,0,930,700),
+                false, true, GUIStyle.none, GUI.skin.verticalScrollbar);
+            GUI.DrawTexture(new Rect(10,5,900,675),cream);
+            var parentText = new GUIStyle(label) { fontSize = 32, alignment = TextAnchor.UpperLeft, wordWrap = true };
+            GUI.Label(new Rect(55,40,820,95),$"これまでに {PlayerPrefs.GetInt("solvedCount")}もん ときました。",parentText);
+            GUI.Label(new Rect(55,145,820,80),$"せいかいは {PlayerPrefs.GetInt("correctCount")}もんです。",parentText);
+            GUI.Label(new Rect(55,235,820,165),"初級と「じゆうに つんでみよう」は無料です。\n中級・上級は一度の購入で、ずっと遊べます。",parentText);
+            if(ChoiceButton(new Rect(155,460,620,88),"レベルの こうにゅう・ふくげん",yellow)) page=Page.Store;
+            GUI.Label(new Rect(55,585,820,70),"右のバー、または画面を指で上下に動かせます。",new GUIStyle(parentText){fontSize=25});
+            GUI.EndScrollView();
         }
 
         private void OpenParentGate(Page destination)
